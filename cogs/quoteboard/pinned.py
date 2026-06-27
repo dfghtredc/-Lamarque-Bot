@@ -20,7 +20,7 @@ class Pinned(commands.Cog):
         pinned = config.get("pinned_users", {})
         pinned[str(user.id)] = channel.id if channel else None
         config["pinned_users"] = pinned
-        save_config()
+        await set_config("pinned_users", pinned)
         location = f"in {channel.mention}" if channel else "everywhere"
         await ctx.send(f"✅ Now tracking **{user.display_name}** {location}.")
 
@@ -36,14 +36,14 @@ class Pinned(commands.Cog):
             if pinned[uid] == channel.id:
                 del pinned[uid]
                 config["pinned_users"] = pinned
-                save_config()
+                await set_config("pinned_users", pinned)
                 await ctx.send(f"✅ Stopped tracking **{user.display_name}** in {channel.mention}.")
             else:
                 await ctx.send(f"❌ {user.display_name} is not pinned in {channel.mention}.", delete_after=5)
         else:
             del pinned[uid]
             config["pinned_users"] = pinned
-            save_config()
+            await set_config("pinned_users", pinned)
             await ctx.send(f"✅ Stopped tracking **{user.display_name}**.")
 
     @commands.command()
@@ -109,7 +109,7 @@ class Pinned(commands.Cog):
         pinned = config.get("pinned_users", {})
         pinned[str(user.id)] = channel.id if channel else None
         config["pinned_users"] = pinned
-        save_config()
+        await set_config("pinned_users", pinned)
         location = f"in {channel.mention}" if channel else "everywhere"
         await interaction.response.send_message(f"✅ Now tracking **{user.display_name}** {location}.")
 

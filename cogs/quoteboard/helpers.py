@@ -5,7 +5,6 @@ async_helpers logic is handled in quote_cache and config_manager directly.
 import discord
 from config_manager import config, save_config, add_saved_quote, is_saved
 from quote_cache import quote_cache
-from cogs.security import can_use_command
 
 
 def build_embed(msg: discord.Message, search_channel: discord.TextChannel, action_by: str) -> discord.Embed:

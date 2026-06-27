@@ -1,6 +1,7 @@
 import io
 import time
 import discord
+from discord import app_commands
 from discord.ext import commands
 from config_manager import (
     config, set_config, save_config,
@@ -9,6 +10,144 @@ from config_manager import (
 
 START_TIME = time.monotonic()
 
+
+# ── Setup Modal ───────────────────────────────────────────────
+
+class SetupModal(discord.ui.Modal, title="Lamarque Bot Setup"):
+    quoteboard = discord.ui.TextInput(
+        label="Quoteboard Channel ID",
+        placeholder="Right-click channel → Copy Channel ID",
+        required=False
+    )
+    echo_feed = discord.ui.TextInput(
+        label="Echo Feed Channel ID",
+        placeholder="Right-click channel → Copy Channel ID",
+        required=False
+    )
+    interval = discord.ui.TextInput(
+        label="Auto Quote Interval (minutes)",
+        placeholder="e.g. 30",
+        required=False,
+        max_length=4
+    )
+    welcome = discord.ui.TextInput(
+        label="Welcome Channel ID",
+        placeholder="Right-click channel → Copy Channel ID",
+        required=False
+    )
+    log_channel = discord.ui.TextInput(
+        label="Log Channel ID",
+        placeholder="Right-click channel → Copy Channel ID",
+        required=False
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        results = []
+
+        if self.quoteboard.value:
+            try:
+                ch_id = int(self.quoteboard.value.strip())
+                ch = interaction.guild.get_channel(ch_id)
+                if ch:
+                    await set_config("quoteboard_channel", ch_id)
+                    results.append(f"✅ Quoteboard → {ch.mention}")
+                else:
+                    results.append("❌ Quoteboard channel not found")
+            except ValueError:
+                results.append("❌ Invalid quoteboard channel ID")
+
+        if self.echo_feed.value:
+            try:
+                ch_id = int(self.echo_feed.value.strip())
+                ch = interaction.guild.get_channel(ch_id)
+                if ch:
+                    await set_config("echo_feed_channel", ch_id)
+                    results.append(f"✅ Echo feed → {ch.mention}")
+                else:
+                    results.append("❌ Echo feed channel not found")
+            except ValueError:
+                results.append("❌ Invalid echo feed channel ID")
+
+        if self.interval.value:
+            try:
+                minutes = int(self.interval.value.strip())
+                if minutes >= 1:
+                    await set_config("quote_interval", minutes)
+                    results.append(f"✅ Auto quote interval → {minutes} minutes")
+                else:
+                    results.append("❌ Interval must be at least 1 minute")
+            except ValueError:
+                results.append("❌ Invalid interval")
+
+        if self.welcome.value:
+            try:
+                ch_id = int(self.welcome.value.strip())
+                ch = interaction.guild.get_channel(ch_id)
+                if ch:
+                    await set_config("welcome_channel", ch_id)
+                    results.append(f"✅ Welcome → {ch.mention}")
+                else:
+                    results.append("❌ Welcome channel not found")
+            except ValueError:
+                results.append("❌ Invalid welcome channel ID")
+
+        if self.log_channel.value:
+            try:
+                ch_id = int(self.log_channel.value.strip())
+                ch = interaction.guild.get_channel(ch_id)
+                if ch:
+                    await set_config("log_channel", ch_id)
+                    results.append(f"✅ Log → {ch.mention}")
+                else:
+                    results.append("❌ Log channel not found")
+            except ValueError:
+                results.append("❌ Invalid log channel ID")
+
+        if not results:
+            await interaction.response.send_message("⚠️ No fields were filled in.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "**Setup Results:**\n" + "\n".join(results),
+            ephemeral=True
+        )
+        await log_action(
+            interaction.guild.id,
+            interaction.user.id,
+            str(interaction.user),
+            "setup",
+            "modal setup completed"
+        )
+
+
+# ── Reset confirmation view ───────────────────────────────────
+
+class ResetConfirmView(discord.ui.View):
+    def __init__(self, author: discord.Member):
+        super().__init__(timeout=30)
+        self.author = author
+        self.confirmed = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("❌ Not your confirmation.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm Reset", style=discord.ButtonStyle.danger, emoji="⚠️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = True
+        self.stop()
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖️")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = False
+        self.stop()
+        await interaction.response.send_message("❌ Reset cancelled.", ephemeral=True)
+
+
+# ── Admin cog ─────────────────────────────────────────────────
 
 class Admin(commands.Cog):
     def __init__(self, bot):
@@ -53,78 +192,18 @@ class Admin(commands.Cog):
         embed.set_footer(text=f"Latency: {round(self.bot.latency * 1000)}ms")
         await ctx.send(embed=embed)
 
-    # ── !setup ────────────────────────────────────────────────
+    # ── !setup — opens native Modal ───────────────────────────
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def setup(self, ctx):
-        """Guided setup flow for all bot config."""
+        """Opens a native Discord modal for bot setup."""
+        await ctx.send(
+            "Click below to open the setup form:",
+            view=SetupLaunchView()
+        )
 
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel
-
-        await ctx.send("🔧 **Lamarque Bot Setup**\nType `skip` to skip any step.\n\n**Step 1/5:** Mention the quoteboard channel:")
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() != "skip" and msg.channel_mentions:
-                await set_config("quoteboard_channel", msg.channel_mentions[0].id)
-                await ctx.send(f"✅ Quoteboard set to {msg.channel_mentions[0].mention}")
-        except Exception:
-            await ctx.send("⏰ Timed out. Re-run `!setup` to try again.")
-            return
-
-        await ctx.send("**Step 2/5:** Mention the echo feed channel:")
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() != "skip" and msg.channel_mentions:
-                await set_config("echo_feed_channel", msg.channel_mentions[0].id)
-                await ctx.send(f"✅ Echo feed set to {msg.channel_mentions[0].mention}")
-        except Exception:
-            await ctx.send("⏰ Timed out.")
-            return
-
-        await ctx.send("**Step 3/5:** How many minutes between auto quotes? (number only):")
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() != "skip":
-                try:
-                    minutes = int(msg.content.strip())
-                    if minutes >= 1:
-                        await set_config("quote_interval", minutes)
-                        feed_cog = self.bot.cogs.get("Feed")
-                        if feed_cog:
-                            feed_cog.quote_feed.change_interval(minutes=minutes)
-                        await ctx.send(f"✅ Auto quote interval set to {minutes} minutes.")
-                except ValueError:
-                    await ctx.send("⚠️ Invalid number, skipped.")
-        except Exception:
-            await ctx.send("⏰ Timed out.")
-            return
-
-        await ctx.send("**Step 4/5:** Mention the welcome channel (or skip):")
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() != "skip" and msg.channel_mentions:
-                await set_config("welcome_channel", msg.channel_mentions[0].id)
-                await ctx.send(f"✅ Welcome channel set to {msg.channel_mentions[0].mention}")
-        except Exception:
-            await ctx.send("⏰ Timed out.")
-            return
-
-        await ctx.send("**Step 5/5:** Mention the log channel (or skip):")
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() != "skip" and msg.channel_mentions:
-                await set_config("log_channel", msg.channel_mentions[0].id)
-                await ctx.send(f"✅ Log channel set to {msg.channel_mentions[0].mention}")
-        except Exception:
-            await ctx.send("⏰ Timed out.")
-            return
-
-        await ctx.send("✅ **Setup complete!** Run `!status` to review your config.")
-        await log_action(ctx.guild.id, ctx.author.id, str(ctx.author), "setup", "guided setup completed")
-
-    # ── !resetquotes ──────────────────────────────────────────
+    # ── !resetquotes — native button confirmation ─────────────
 
     @commands.command()
     @commands.has_permissions(administrator=True)
@@ -132,28 +211,25 @@ class Admin(commands.Cog):
         saved = config.get("saved_quotes", [])
         count = len(saved)
 
+        view = ResetConfirmView(ctx.author)
         embed = discord.Embed(
             title="⚠️ Reset Saved Quotes",
-            description=f"This will clear **{count}** saved quote IDs from the dedup list.\n"
-                        f"Quotes in the quoteboard channel are **not deleted** — only the tracking list is cleared.\n\n"
-                        f"Type `confirm` to proceed or `cancel` to abort.",
+            description=(
+                f"This will clear **{count}** saved quote IDs from the dedup list.\n"
+                f"Quotes in the quoteboard channel are **not deleted** — only the tracking list is cleared."
+            ),
             color=discord.Color.orange()
         )
-        await ctx.send(embed=embed)
+        msg = await ctx.send(embed=embed, view=view)
+        await view.wait()
+        await msg.delete()
 
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel
-
-        try:
-            msg = await self.bot.wait_for("message", check=check, timeout=30)
-            if msg.content.lower() == "confirm":
-                await clear_saved_quotes()
-                await ctx.send(f"✅ Cleared {count} saved quote IDs.")
-                await log_action(ctx.guild.id, ctx.author.id, str(ctx.author), "resetquotes", f"cleared {count} entries")
-            else:
-                await ctx.send("❌ Reset cancelled.")
-        except Exception:
-            await ctx.send("⏰ Timed out. Reset cancelled.")
+        if view.confirmed:
+            await clear_saved_quotes()
+            await ctx.send(f"✅ Cleared {count} saved quote IDs.")
+            await log_action(ctx.guild.id, ctx.author.id, str(ctx.author), "resetquotes", f"cleared {count} entries")
+        else:
+            await ctx.send("❌ Reset cancelled.", delete_after=5)
 
     # ── !exportquotes ─────────────────────────────────────────
 
@@ -170,7 +246,7 @@ class Admin(commands.Cog):
             await ctx.send("❌ Quoteboard channel not found.", delete_after=5)
             return
 
-        await ctx.send("⏳ Fetching quotes... this may take a moment.")
+        await ctx.send("⏳ Fetching quotes...")
 
         lines = []
         async for msg in channel.history(limit=500):
@@ -186,21 +262,18 @@ class Admin(commands.Cog):
                 lines.append("")
 
         if not lines:
-            await ctx.send("❌ No quotes found in the quoteboard channel.")
+            await ctx.send("❌ No quotes found.")
             return
 
         output = "\n".join(lines)
-        file = discord.File(
-            io.BytesIO(output.encode("utf-8")),
-            filename="quotes_export.txt"
-        )
+        file = discord.File(io.BytesIO(output.encode("utf-8")), filename="quotes_export.txt")
         try:
             await ctx.author.send("📋 Here are your exported quotes:", file=file)
             await ctx.send("✅ Quotes exported — check your DMs.")
         except discord.Forbidden:
             await ctx.send("❌ Couldn't DM you. Check your privacy settings.")
 
-        await log_action(ctx.guild.id, ctx.author.id, str(ctx.author), "exportquotes", f"{len(lines)} lines exported")
+        await log_action(ctx.guild.id, ctx.author.id, str(ctx.author), "exportquotes", f"{len(lines)} lines")
 
     # ── !quoteboardstats ──────────────────────────────────────
 
@@ -236,13 +309,20 @@ class Admin(commands.Cog):
             return
 
         top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
-        top_str = "\n".join(f"**{i+1}.** {name} — {count} quote{'s' if count != 1 else ''}" for i, (name, count) in enumerate(top))
+        top_str = "\n".join(
+            f"**{i+1}.** {name} — {count} quote{'s' if count != 1 else ''}"
+            for i, (name, count) in enumerate(top)
+        )
 
         embed = discord.Embed(title="📊 Quoteboard Stats", color=discord.Color.gold())
         embed.add_field(name="Total Quotes", value=str(total), inline=True)
         embed.add_field(name="Unique Users", value=str(len(counts)), inline=True)
         if last_quote:
-            embed.add_field(name="Last Quote", value=f"<t:{int(last_quote.created_at.timestamp())}:R>", inline=True)
+            embed.add_field(
+                name="Last Quote",
+                value=f"<t:{int(last_quote.created_at.timestamp())}:R>",
+                inline=True
+            )
         embed.add_field(name="Top Quoted", value=top_str or "None", inline=False)
         await ctx.send(embed=embed)
 
@@ -257,10 +337,10 @@ class Admin(commands.Cog):
             await ctx.send("No audit log entries yet.")
             return
 
-        lines = []
-        for e in entries:
-            lines.append(f"`{e['timestamp']}` **{e['user_name']}** — `!{e['command']}` {e['detail'][:50]}")
-
+        lines = [
+            f"`{e['timestamp']}` **{e['user_name']}** — `!{e['command']}` {e['detail'][:50]}"
+            for e in entries
+        ]
         output = "\n".join(lines)
         if len(output) > 1900:
             output = output[:1900] + "\n..."
@@ -277,41 +357,73 @@ class Admin(commands.Cog):
     @commands.command(name="help")
     async def custom_help(self, ctx):
         embed = discord.Embed(title="Lamarque Bot — Commands", color=discord.Color.blurple())
-
         embed.add_field(name="📌 Quoteboard", value=
             "`!savequote` `!quote` `!pull @user` `!pullid <id>` `!pullmsg <id>`\n"
             "`!randomquote @user` `!quotecount @user` `!quoteleaderboard`\n"
-            "`!deletequote <id>` `!quoteoftheday`",
-            inline=False
-        )
+            "`!deletequote <id>` `!setqotd #channel`",
+            inline=False)
         embed.add_field(name="⚙️ Setup", value=
             "`!setup` `!status` `!setquoteboard` `!setechofeed`\n"
-            "`!setquoterole` `!setquotestream` `!setwelcome` `!setlogchannel`\n"
-            "`!quotestop` `!quotestart`",
-            inline=False
-        )
+            "`!setquoterole` `!setquotestream` `!setwelcome` `!quotestop` `!quotestart`",
+            inline=False)
         embed.add_field(name="📊 Stats", value=
             "`!quoteboardstats` `!ping` `!auditlog`",
-            inline=False
-        )
+            inline=False)
         embed.add_field(name="👤 Pinned Users", value=
             "`!pinuser @user` `!unpinuser @user` `!pinnedusers`",
-            inline=False
-        )
+            inline=False)
         embed.add_field(name="🔒 Lockdown", value=
-            "`!lockdown channel/user/role/server` `!unlock channel/user/role/server`",
-            inline=False
-        )
+            "`!lockdown channel/user/role/server [duration]`\n"
+            "`!unlock channel/user/role/server`",
+            inline=False)
         embed.add_field(name="🛠️ Admin", value=
             "`!resetquotes` `!exportquotes` `!auditlog`",
-            inline=False
-        )
+            inline=False)
         embed.add_field(name="🎉 Fun", value=
-            "`!poll \"question\" \"opt1\" \"opt2\"`",
-            inline=False
-        )
-        embed.set_footer(text="Slash command versions available for most commands via /")
+            "`!poll \"question\" \"opt1\" \"opt2\" [duration]`",
+            inline=False)
+        embed.set_footer(text="Slash command versions available via /")
         await ctx.send(embed=embed)
+
+    # ── /setup slash command ──────────────────────────────────
+
+    @app_commands.command(name="setup", description="Configure the bot using a form")
+    @app_commands.default_permissions(administrator=True)
+    async def slash_setup(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(SetupModal())
+
+    # ── /status slash command ─────────────────────────────────
+
+    @app_commands.command(name="status", description="Show current bot configuration")
+    @app_commands.default_permissions(administrator=True)
+    async def slash_status(self, interaction: discord.Interaction):
+        board_id = config.get("quoteboard_channel")
+        feed_id = config.get("echo_feed_channel")
+        interval = config.get("quote_interval", 30)
+        pinned = config.get("pinned_users", {})
+        saved = config.get("saved_quotes", [])
+        role_id = config.get("quotesave_role")
+
+        embed = discord.Embed(title="📊 Lamarque Bot Status", color=discord.Color.blurple())
+        embed.add_field(name="Quoteboard", value=f"<#{board_id}>" if board_id else "❌ Not set", inline=True)
+        embed.add_field(name="Echo Feed", value=f"<#{feed_id}>" if feed_id else "❌ Not set", inline=True)
+        embed.add_field(name="Feed Interval", value=f"{interval} minutes", inline=True)
+        embed.add_field(name="Quotes Saved", value=str(len(saved)), inline=True)
+        embed.add_field(name="Pinned Users", value=str(len(pinned)), inline=True)
+        embed.add_field(name="Quote Role", value=f"<@&{role_id}>" if role_id else "Everyone", inline=True)
+        embed.set_footer(text=f"Latency: {round(self.bot.latency * 1000)}ms")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ── Setup launch view (button that opens modal) ───────────────
+
+class SetupLaunchView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.button(label="Open Setup Form", style=discord.ButtonStyle.primary, emoji="🔧")
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(SetupModal())
 
 
 async def setup(bot):

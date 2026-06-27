@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from config_manager import config, set_config, log_action
 from .helpers import get_random_quote
-from stats import extract_author_id
+from .stats import extract_author_id
 
 
 class Management(commands.Cog):
