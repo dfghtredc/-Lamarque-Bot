@@ -19,7 +19,7 @@ handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 log.addHandler(handler)
-log.addHandler(logging.StreamHandler())  # also print to terminal
+log.addHandler(logging.StreamHandler())
 
 # ── Bot setup ─────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -28,7 +28,6 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.remove_command("help")
-bot._skip_check = lambda x, y: False
 
 COGS = [
     "cogs.security",
@@ -41,6 +40,32 @@ COGS = [
 ]
 
 GUILD_ID = 1519789669250891807
+TEST_BOT_ID = 1520264910523727953
+
+
+@bot.event
+async def on_ready():
+    logging.info(f"[BOT] Logged in as {bot.user}")
+    guild = discord.Object(id=GUILD_ID)
+    bot.tree.copy_global_to(guild=guild)
+    await bot.tree.sync(guild=guild)
+    logging.info("[SLASH] Guild commands synced")
+    await bot.tree.sync()
+    logging.info("[SLASH] Global commands synced")
+
+
+@bot.event
+async def on_disconnect():
+    logging.warning("[BOT] Disconnected from Discord.")
+
+
+@bot.event
+async def on_message(message):
+    # allow test runner bot to trigger commands
+    # block all other bots
+    if message.author.bot and message.author.id != TEST_BOT_ID:
+        return
+    await bot.process_commands(message)
 
 
 async def main():
@@ -62,30 +87,4 @@ async def main():
             logging.info("[DB] Database closed")
 
 
-@bot.event
-async def on_ready():
-    logging.info(f"[BOT] Logged in as {bot.user}")
-
-    guild = discord.Object(id=GUILD_ID)
-    bot.tree.copy_global_to(guild=guild)
-    await bot.tree.sync(guild=guild)
-    logging.info("[SLASH] Guild commands synced")
-
-    await bot.tree.sync()
-    logging.info("[SLASH] Global commands synced")
-
-
-@bot.event
-async def on_disconnect():
-    logging.warning("[BOT] Disconnected from Discord.")
-
-
 asyncio.run(main())
-
-
-@bot.event
-async def on_message(message):
-    TEST_BOT_ID = 1520264910523727953
-    if message.author.bot and message.author.id != TEST_BOT_ID:
-        return
-    await bot.process_commands(message)
