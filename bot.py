@@ -81,3 +81,11 @@ async def on_disconnect():
 
 
 asyncio.run(main())
+
+
+@bot.event
+async def on_message(message):
+    TEST_BOT_ID = 1520264910523727953
+    if message.author.bot and message.author.id != TEST_BOT_ID:
+        return
+    await bot.process_commands(message)
