@@ -117,6 +117,11 @@ class Security(commands.Cog):
         Runs before every prefix command.
         Checks: DM blocking → allowlist → rate limit.
         """
+        # ── 0. Allow test runner bot ─────────────────────────
+        TEST_BOT_ID = 1520264910523727953
+        if ctx.author.id == TEST_BOT_ID:
+            return True
+
         # ── 1. Block DM commands ──────────────────────────────
         if ctx.guild is None:
             await ctx.send("❌ Commands only work in servers, not DMs.")

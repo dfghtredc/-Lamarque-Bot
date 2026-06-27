@@ -28,6 +28,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.remove_command("help")
+bot._skip_check = lambda x, y: False
 
 COGS = [
     "cogs.security",
