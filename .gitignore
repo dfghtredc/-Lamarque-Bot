@@ -2,3 +2,5 @@
 __pycache__/
 *.py[cod]
 discord.log
+terms.md
+privacy.md
