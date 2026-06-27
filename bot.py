@@ -1,11 +1,10 @@
 import os
 import asyncio
 import logging
-import json
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from config_manager import load_config
+from config_manager import init_db, close_db
 
 load_dotenv()
 
@@ -22,17 +21,22 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 COGS = [
     "cogs.security",
     "cogs.lockdown",
+    "cogs.welcome",
+    "cogs.antispam",
+    "cogs.poll",
+    "cogs.admin",
     "cogs.quoteboard",
 ]
 
 GUILD_ID = 1519789669250891807
 
+
 async def main():
-    # load config into memory before anything else
-    load_config()
+    # init database and load config into memory before anything else
+    await init_db()
+    print("[DB] Database initialized")
 
     async with bot:
-        # load all cogs before connecting
         for cog in COGS:
             try:
                 await bot.load_extension(cog)
@@ -40,20 +44,22 @@ async def main():
             except Exception as e:
                 print(f"[COGS] Failed to load {cog}: {e}")
 
-        await bot.start(TOKEN)
+        try:
+            await bot.start(TOKEN)
+        finally:
+            await close_db()
+            print("[DB] Database closed")
 
 
 @bot.event
 async def on_ready():
     print(f"[BOT] Logged in as {bot.user}")
 
-    # guild sync — instant
     guild = discord.Object(id=GUILD_ID)
     bot.tree.copy_global_to(guild=guild)
     await bot.tree.sync(guild=guild)
     print("[SLASH] Guild commands synced")
 
-    # global sync — up to 1 hour
     await bot.tree.sync()
     print("[SLASH] Global commands synced")
 
@@ -66,8 +72,5 @@ async def on_disconnect():
 handler = logging.FileHandler(filename="discord.log", encoding="utf-8", mode="w")
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        handlers=[handler],
-        level=logging.INFO
-    )
+    logging.basicConfig(handlers=[handler], level=logging.INFO)
     asyncio.run(main())
