@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from utils import load_config, save_config
+from config_manager import config, save_config
 
 
 class Setup(commands.Cog):
@@ -10,54 +10,64 @@ class Setup(commands.Cog):
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def setquoteboard(self, ctx, channel: discord.TextChannel):
-        config = load_config()
+        if channel.guild.id != ctx.guild.id:
+            await ctx.send("❌ That channel isn't in this server.", delete_after=5)
+            return
         config["quoteboard_channel"] = channel.id
-        save_config(config)
+        save_config()
         await ctx.send(f"✅ Quoteboard set to {channel.mention}")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def setechofeed(self, ctx, channel: discord.TextChannel):
-        config = load_config()
+        if channel.guild.id != ctx.guild.id:
+            await ctx.send("❌ That channel isn't in this server.", delete_after=5)
+            return
         config["echo_feed_channel"] = channel.id
-        save_config(config)
+        save_config()
         await ctx.send(f"✅ Echo feed set to {channel.mention}")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def setquoterole(self, ctx, role: discord.Role):
-        config = load_config()
         config["quotesave_role"] = role.id
-        save_config(config)
+        save_config()
         await ctx.send(f"✅ Quote save role set to {role.mention}")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def setquotestream(self, ctx, minutes: int):
         if minutes < 1:
-            await ctx.send("❌ Minimum is 1 minute.")
+            await ctx.send("❌ Minimum is 1 minute.", delete_after=5)
             return
-        config = load_config()
         config["quote_interval"] = minutes
-        save_config(config)
+        save_config()
+        # update the live feed loop interval
+        feed_cog = self.bot.cogs.get("Feed")
+        if feed_cog:
+            feed_cog.quote_feed.change_interval(minutes=minutes)
         await ctx.send(f"✅ Quote feed interval set to {minutes} minutes.")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def quotestop(self, ctx):
-        cog = self.bot.cogs.get("Feed")
-        if not cog:
-            await ctx.send("❌ Feed cog not found.")
+        feed_cog = self.bot.cogs.get("Feed")
+        if not feed_cog:
+            await ctx.send("❌ Feed cog not found.", delete_after=5)
             return
-        cog.quote_feed.stop()
+        feed_cog.quote_feed.stop()
         await ctx.send("⏹️ Quote feed stopped.")
 
     @commands.command()
     @commands.has_permissions(administrator=True)
     async def quotestart(self, ctx):
-        cog = self.bot.cogs.get("Feed")
-        if not cog:
-            await ctx.send("❌ Feed cog not found.")
+        feed_cog = self.bot.cogs.get("Feed")
+        if not feed_cog:
+            await ctx.send("❌ Feed cog not found.", delete_after=5)
             return
-        cog.quote_feed.start()
+        feed_cog.quote_feed.start()
         await ctx.send("▶️ Quote feed started.")
+
+
+async def setup(bot):
+    await bot.add_cog(Setup(bot))

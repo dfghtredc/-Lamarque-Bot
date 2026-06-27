@@ -1,16 +1,14 @@
-import random
+"""
+helpers.py — sync utilities (no I/O)
+async_helpers logic is handled in quote_cache and config_manager directly.
+"""
 import discord
-from utils import load_config, save_config
+from config_manager import config, save_config, add_saved_quote, is_saved
+from quote_cache import quote_cache
+from cogs.security import can_use_command
 
 
-def can_save_quote(member: discord.Member, config: dict):
-    role_id = config.get("quotesave_role")
-    if not role_id:
-        return True
-    return any(r.id == role_id for r in member.roles)
-
-
-def build_embed(msg, search_channel, action_by):
+def build_embed(msg: discord.Message, search_channel: discord.TextChannel, action_by: str) -> discord.Embed:
     embed = discord.Embed(
         description=msg.content,
         color=discord.Color.gold(),
@@ -20,24 +18,31 @@ def build_embed(msg, search_channel, action_by):
         name=msg.author.display_name,
         icon_url=msg.author.display_avatar.url
     )
-    embed.set_footer(text=f"#{search_channel.name} · {action_by}")
+    # store author ID in footer for reliable stat lookups
+    embed.set_footer(text=f"#{search_channel.name} · {action_by} · uid:{msg.author.id}")
     if msg.attachments:
         embed.set_image(url=msg.attachments[0].url)
     return embed
 
 
-async def save_to_quoteboard(bot, msg, channel, action_by):
-    config = load_config()
+async def save_to_quoteboard(bot, msg: discord.Message, channel: discord.TextChannel, action_by: str):
+    """
+    Save a message to the quoteboard channel.
+    Returns the sent embed message, or None if already saved or unavailable.
+    """
     board_id = config.get("quoteboard_channel")
     if not board_id:
         return None
 
-    saved = config.get("saved_quotes", [])
-    if msg.id in saved:
+    if is_saved(msg.id):
         return None
 
     board_channel = bot.get_channel(board_id)
     if not board_channel:
+        return None
+
+    # guild scope check — prevent cross-guild channel access
+    if board_channel.guild.id != channel.guild.id:
         return None
 
     embed = build_embed(msg, channel, action_by)
@@ -50,49 +55,37 @@ async def save_to_quoteboard(bot, msg, channel, action_by):
                 value=ref_msg.content or "*[no text content]*",
                 inline=False
             )
-        except discord.NotFound:
+        except (discord.NotFound, discord.HTTPException):
             pass
 
     sent = await board_channel.send(embed=embed)
 
-    saved.append(msg.id)
-    config["saved_quotes"] = saved
-    save_config(config)
+    # update in-memory config and persist
+    add_saved_quote(msg.id)
+
+    # invalidate quote cache so next fetch includes this quote
+    await quote_cache.invalidate()
 
     return sent
 
 
-async def get_random_quote(bot, prioritize_pinned=False):
-    config = load_config()
+async def get_random_quote(bot, prioritize_pinned: bool = False):
+    """
+    Get a random quote from the quoteboard using the cache.
+    """
     board_id = config.get("quoteboard_channel")
     if not board_id:
         return None
 
-    channel = bot.get_channel(board_id)
-    if not channel:
-        return None
-
-    messages = [
-        msg async for msg in channel.history(limit=200)
-        if msg.author.bot and msg.embeds
-    ]
-
-    if not messages:
-        return None
-
+    pinned_names = None
     if prioritize_pinned:
         pinned = config.get("pinned_users", {})
-        pinned_names = []
-        for uid in pinned.keys():
-            member = channel.guild.get_member(int(uid))
-            if member:
-                pinned_names.append(member.display_name)
-        if pinned_names:
-            pinned_msgs = [
-                msg for msg in messages
-                if any(name in msg.embeds[0].author.name for name in pinned_names)
-            ]
-            if pinned_msgs:
-                return random.choice(pinned_msgs)
+        channel = bot.get_channel(board_id)
+        if channel and pinned:
+            pinned_names = []
+            for uid in pinned.keys():
+                member = channel.guild.get_member(int(uid))
+                if member:
+                    pinned_names.append(member.display_name)
 
-    return random.choice(messages)
+    return await quote_cache.get_random(bot, board_id, pinned_names)

@@ -1,11 +1,14 @@
 from discord.ext import commands, tasks
-from utils import load_config
+from config_manager import config
 from .helpers import get_random_quote
 
 
 class Feed(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # read stored interval — default 30 if not set
+        interval = config.get("quote_interval", 30)
+        self.quote_feed.change_interval(minutes=interval)
         self.quote_feed.start()
 
     def cog_unload(self):
@@ -13,7 +16,6 @@ class Feed(commands.Cog):
 
     @tasks.loop(minutes=30)
     async def quote_feed(self):
-        config = load_config()
         feed_id = config.get("echo_feed_channel")
         if not feed_id:
             return
@@ -29,3 +31,7 @@ class Feed(commands.Cog):
     @quote_feed.before_loop
     async def before_quote_feed(self):
         await self.bot.wait_until_ready()
+
+
+async def setup(bot):
+    await bot.add_cog(Feed(bot))

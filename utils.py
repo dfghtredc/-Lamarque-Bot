@@ -1,9 +1,11 @@
-import json
+# Backward compatibility shim.
+# New code should import from config_manager directly.
+from config_manager import config, save_config as _save, load_config as _load
 
-def load_config():
-    with open("config.json", "r") as f:
-        return json.load(f)
+def load_config() -> dict:
+    return config
 
-def save_config(config):
-    with open("config.json", "w") as f:
-        json.dump(config, f, indent=4)
+def save_config(cfg: dict = None) -> None:
+    if cfg is not None:
+        config.update(cfg)
+    _save()
